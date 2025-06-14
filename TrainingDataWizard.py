@@ -136,6 +136,12 @@ class TrainingDataGeneratorUI:
         self.exit_button = tk.Button(button_frame, text="Exit", command=master.quit)
         self.exit_button.pack(side=tk.LEFT, padx=5)
 
+
+        
+        # Add the new button here, after other buttons are packed
+        self.normalize_scale_button = tk.Button(button_frame, text="Normalize Shape Scale", command=self._normalize_shape_scale)
+        self.normalize_scale_button.pack(side=tk.LEFT, padx=5)
+
         # --- Status and Current Data Display ---
         self.status_label = tk.Label(left_panel, text="Current Data Rows (0): Click on a row number to select for editing/deletion.", anchor="w")
         self.status_label.grid(row=3, column=0, padx=5, pady=5, sticky="ew")
@@ -173,6 +179,114 @@ class TrainingDataGeneratorUI:
 
         # --- Load existing data on startup ---
         self._load_data_from_csv('training_data.csv')
+
+
+    # Add this method inside the TrainingDataGeneratorUI class
+    def _calculate_centroid_and_furthest_distance(self, coordinates):
+        """
+        Calculates the centroid and the maximum distance of any point from the centroid.
+
+        Args:
+            coordinates (list of tuple): A list of (x, y) tuples.
+
+        Returns:
+            tuple: (centroid_x, centroid_y, max_distance)
+                   Returns (None, None, 0.0) if coordinates are empty.
+        """
+        if not coordinates:
+            return None, None, 0.0
+
+        coords_array = np.array(coordinates)
+        centroid_x = np.mean(coords_array[:, 0])
+        centroid_y = np.mean(coords_array[:, 1])
+
+        distances = np.sqrt(np.sum((coords_array - np.array([centroid_x, centroid_y]))**2, axis=1))
+        max_distance = np.max(distances) if distances.size > 0 else 0.0
+
+        return centroid_x, centroid_y, max_distance
+
+    # Add this method inside the TrainingDataGeneratorUI class
+    def _scale_shape_to_max_distance_from_center(self, coordinates, target_max_distance=50.0):
+        """
+        Scales a list of coordinates such that the furthest point from their
+        centroid is equal to `target_max_distance`.
+        The shape is also translated so its centroid is at (target_max_distance, target_max_distance)
+        to effectively center it within a 0-100 coordinate system, assuming a target_max_distance of 50.
+
+        Args:
+            coordinates (list of tuple): A list of (x, y) tuples.
+            target_max_distance (float): The desired maximum distance from the center.
+                                         For 0-100 range, 50 is a good target for max extent from center.
+
+        Returns:
+            list: A new list of (x, y) tuples with scaled and centered coordinates.
+                  Returns empty list if input coordinates are empty.
+        """
+        if not coordinates:
+            return []
+
+        centroid_x, centroid_y, current_max_distance = self._calculate_centroid_and_furthest_distance(coordinates)
+
+        if current_max_distance == 0: # All points are the same or only one point
+            return coordinates # Cannot scale, return original
+
+        scale_factor = target_max_distance / current_max_distance
+
+        scaled_coordinates = []
+        new_center_x = target_max_distance # For a 0-100 range, (50,50) is the center
+        new_center_y = target_max_distance
+
+        for x, y in coordinates:
+            # Translate to origin, scale, then translate to new desired center
+            scaled_x = (x - centroid_x) * scale_factor + new_center_x
+            scaled_y = (y - centroid_y) * scale_factor + new_center_y
+            scaled_coordinates.append((scaled_x, scaled_y))
+
+        return scaled_coordinates
+
+    # Add this method inside the TrainingDataGeneratorUI class
+    def _normalize_shape_scale(self):
+        """
+        Scales the shape currently defined in the output fields so that its
+        furthest point from the centroid is normalized to a target value (e.g., 50.0),
+        and then updates the output fields.
+        """
+        self._cancel_interpolation() # Stop any active interpolation
+        output_values = self._validate_and_get_values(self.output_entries)
+        if output_values is None:
+            messagebox.showerror("Scaling Error", "All output (coordinate) fields must contain valid numerical values for scaling.")
+            return
+        if len(output_values) != 32:
+            messagebox.showerror("Scaling Error", "Expected 32 output values (16 pairs) to scale the shape.")
+            return
+
+        # Convert flattened list to (x,y) tuples
+        coordinates = []
+        for i in range(0, len(output_values), 2):
+            coordinates.append((output_values[i], output_values[i+1]))
+
+        if not coordinates:
+            messagebox.showwarning("Scaling Info", "No coordinates to scale.")
+            return
+
+        # Target max distance from center is 50.0, assuming a 0-100 coordinate system where center is (50,50)
+        scaled_coords_tuples = self._scale_shape_to_max_distance_from_center(coordinates, target_max_distance=50.0)
+
+        # Flatten back to a list of 32 values
+        scaled_output_values = []
+        for x, y in scaled_coords_tuples:
+            scaled_output_values.append(x)
+            scaled_output_values.append(y)
+
+        # Populate the output entries with the new, scaled values
+        for i, val in enumerate(scaled_output_values):
+            if i < len(self.output_entries):
+                self.output_entries[i].delete(0, tk.END)
+                self.output_entries[i].insert(0, f"{val:.4f}")
+
+        messagebox.showinfo("Shape Scaled", "Shape has been scaled and centered based on its furthest point from the centroid.")
+        self.preview_shape_from_fields() # Redraw with new scale and update orientation label
+
 
     def _validate_and_get_values(self, entries):
         """
