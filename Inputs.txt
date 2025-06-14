@@ -1,0 +1,11 @@
+Input 1: Happy
+Input 2: Sad
+Input 3: Angry
+Input 4: Criticise
+Input 5: Lower Lid Up
+Input 6: Eyebrow Raise
+Input 7: EyeBrow Lower
+Input 8: Close Eye
+
+
+1.0,0.0,0.0,0.0,0.8,0.1,0.0,0.0
