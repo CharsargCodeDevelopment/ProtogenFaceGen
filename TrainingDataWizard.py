@@ -59,7 +59,7 @@ class TrainingDataGeneratorUI:
 
         # --- Left Panel: Input, Output, Buttons, Data Display ---
         left_panel = tk.Frame(master)
-        left_panel.grid(row=0, column=0, rowspan=5, padx=10, pady=5, sticky="nsew")
+        left_panel.grid(row=0, column=0, rowspan=10, padx=10, pady=5, sticky="nsew")
         left_panel.grid_columnconfigure(0, weight=1)
 
         # --- Input Section (8 numerical inputs) ---
@@ -142,6 +142,9 @@ class TrainingDataGeneratorUI:
         self.normalize_scale_button = tk.Button(button_frame, text="Normalize Shape Scale", command=self._normalize_shape_scale)
         self.normalize_scale_button.pack(side=tk.LEFT, padx=5)
 
+        self.normalize_scale_button = tk.Button(master, text="Rotate Points", command=self._rotate_points)
+        self.normalize_scale_button.grid(row=0,column = 0,sticky = 'es')
+
         # --- Status and Current Data Display ---
         self.status_label = tk.Label(left_panel, text="Current Data Rows (0): Click on a row number to select for editing/deletion.", anchor="w")
         self.status_label.grid(row=3, column=0, padx=5, pady=5, sticky="ew")
@@ -179,6 +182,57 @@ class TrainingDataGeneratorUI:
 
         # --- Load existing data on startup ---
         self._load_data_from_csv('training_data.csv')
+
+    def _rotate_points(self):
+        """
+        Scales the shape currently defined in the output fields so that its
+        furthest point from the centroid is normalized to a target value (e.g., 50.0),
+        and then updates the output fields.
+        """
+        self._cancel_interpolation() # Stop any active interpolation
+        output_values = self._validate_and_get_values(self.output_entries)
+        if output_values is None:
+            messagebox.showerror("Scaling Error", "All output (coordinate) fields must contain valid numerical values for scaling.")
+            return
+        if len(output_values) != 32:
+            messagebox.showerror("Scaling Error", "Expected 32 output values (16 pairs) to scale the shape.")
+            return
+
+        # Convert flattened list to (x,y) tuples
+        coordinates = []
+        for i in range(0, len(output_values), 2):
+            coordinates.append((output_values[i], output_values[i+1]))
+
+        if not coordinates:
+            messagebox.showwarning("Scaling Info", "No coordinates to scale.")
+            return
+
+        # Target max distance from center is 50.0, assuming a 0-100 coordinate system where center is (50,50)
+        print(coordinates)
+        rotated_coords_tuples = coordinates.copy()
+        rotated_coords_tuples.append(rotated_coords_tuples.pop(0))
+
+        # Flatten back to a list of 32 values
+        scaled_output_values = []
+        for x, y in rotated_coords_tuples:
+            scaled_output_values.append(x)
+            scaled_output_values.append(y)
+
+        # Populate the output entries with the new, scaled values
+        for i, val in enumerate(scaled_output_values):
+            if i < len(self.output_entries):
+                self.output_entries[i].delete(0, tk.END)
+                self.output_entries[i].insert(0, f"{val:.4f}")
+
+        messagebox.showinfo("Shape Scaled", "Shape has been scaled and centered based on its furthest point from the centroid.")
+        
+        self.preview_shape_from_fields() # Redraw with new scale and update orientation label
+
+        #self.update_loaded_row()
+        #self.load_selected_row()
+
+
+
 
 
     # Add this method inside the TrainingDataGeneratorUI class
@@ -475,6 +529,85 @@ class TrainingDataGeneratorUI:
         # Clear any existing drawn shape and redraw the *numerical* shape
         self.clear_canvas()
         self._draw_shape_on_canvas(coordinates, line_color="red", point_color="green") # Use different colors for clarity
+
+
+
+        # Set up interpolation
+        start_row_index = self.cycle_index if self.cycle_index != -1 else 0
+        end_row_index = (start_row_index + 1) % len(self.data_rows)
+
+        start_values = self.data_rows[start_row_index][8:]
+        end_values = self.data_rows[end_row_index][8:]
+
+
+        # Reshape flat list of 32 values into 16 (x,y) pairs
+        start_coords = []
+        for i in range(0, len(start_values), 2):
+            start_coords.append((start_values[i], start_values[i+1]))
+
+        # Reshape flat list of 32 values into 16 (x,y) pairs
+        end_coords = []
+        for i in range(0, len(end_values), 2):
+            end_coords.append((end_values[i], end_values[i+1]))
+        print(start_coords)
+        for start,end in zip(start_coords,end_coords):
+            print(start,end)
+            
+            p1_x,p1_y = start
+            p2_x,p2_y = end
+            self._draw_lines_on_canvas([start,end])
+            #self.canvas.create_line(p1_x, p1_y, p2_x, p2_y, fill="blue", width=2)
+
+
+    def _draw_lines_on_canvas(self, coordinates, line_color="blue", point_color="red"):
+        """
+        Draws the given list of (x,y) coordinates as a closed shape on the canvas.
+        Includes scaling and offset to fit the coordinates within the canvas.
+        This method now draws from a *given list of coordinates* (which might be
+        from field values or normalized drawn points).
+
+        Args:
+            coordinates (list of tuple): A list of (x, y) tuples representing the points.
+            line_color (str): Color for the lines.
+            point_color (str): Color for the points.
+        """
+        
+
+        min_model_coord = 0.0
+        max_model_coord = 100.0
+
+        padded_canvas_margin = 20 # Padding to keep shapes from touching canvas edge
+        padded_canvas_width = self.canvas_width - 2 * padded_canvas_margin
+        padded_canvas_height = self.canvas_height - 2 * padded_canvas_margin
+
+        # Calculate scale factor ensuring shape fits within padded canvas
+        scale_x_padded = padded_canvas_width / (max_model_coord - min_model_coord)
+        scale_y_padded = padded_canvas_height / (max_model_coord - min_model_coord)
+        scale = min(scale_x_padded, scale_y_padded)
+
+        # Calculate offsets to center the scaled shape within the padded canvas
+        # If one dimension scales down more, the other will have extra space.
+        center_offset_x = (padded_canvas_width - (max_model_coord - min_model_coord) * scale) / 2
+        center_offset_y = (padded_canvas_height - (max_model_coord - min_model_coord) * scale) / 2
+
+
+        offset_x = padded_canvas_margin + center_offset_x
+        offset_y = self.canvas_height - (padded_canvas_margin + center_offset_y) # Tkinter Y is inverted for drawing
+
+
+        canvas_points = []
+        for x_model, y_model in coordinates:
+            canvas_x = (x_model - min_model_coord) * scale + offset_x
+            canvas_y = offset_y - (y_model - min_model_coord) * scale # Invert Y for drawing on canvas
+
+            canvas_points.append((canvas_x, canvas_y))
+
+            point_radius = 3
+
+        for i in range(len(canvas_points)):
+            p1_x, p1_y = canvas_points[i]
+            p2_x, p2_y = canvas_points[(i + 1) % len(canvas_points)] # Connect last point to first
+            self.canvas.create_line(p1_x, p1_y, p2_x, p2_y, fill=line_color, width=2)
 
     def _draw_shape_on_canvas(self, coordinates, line_color="blue", point_color="red"):
         """

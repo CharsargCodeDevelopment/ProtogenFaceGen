@@ -193,7 +193,7 @@ if __name__ == "__main__":
         print(f"y_train shape: {y_train.shape}")
 
         print("\n--- Training AI with Loaded Data ---")
-        coordinate_ai.train(X_train, y_train, epochs=400000, learning_rate=0.0001)
+        coordinate_ai.train(X_train, y_train, epochs=800000, learning_rate=0.0001)
         
         # --- TKINTER VISUALIZATION SETUP ---
         print("\n--- Starting Tkinter Visualization ---")
