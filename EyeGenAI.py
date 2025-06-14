@@ -220,8 +220,10 @@ if __name__ == "__main__":
 
         # Create a list to hold the slider widgets
         sliders = []
+        sliderNames = ["Happy" , "Sad", "Angry", "Criticise", "Lower Lid Up","Eyebrow Raise", "EyeBrow Lower","Close Eye"]
         for i in range(coordinate_ai.input_size):
             label = Label(slider_frame, text=f"Input {i+1}")
+            label = Label(slider_frame, text=f"Input {i+1} - {sliderNames[i]}:")
             label.pack()
             # The command is a function that will be called every time the slider moves.
             # The `lambda val: update_frame()` ensures update_frame is called without arguments.
